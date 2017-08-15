@@ -14,6 +14,8 @@ import socket
 import subprocess
 import sys
 import time
+import Tkinter as tk
+from Tkinter import *
 
 try:
     import selenium
@@ -46,10 +48,10 @@ class Diag(object):
 
         debug_group = parser.add_argument_group('debug')
         debug_group.add_argument('--fixed-time', dest='fixed_time', help='fixed time', action='store_true')
-        args = parser.parse_args()
+        self.args = parser.parse_args()
 
         # timestamp
-        if args.fixed_time:
+        if self.args.fixed_time:
             self.timestamp = Util.get_datetime(format='%Y%m%d')
         else:
             self.timestamp = Util.get_datetime()
@@ -61,32 +63,32 @@ class Diag(object):
         Util.ensure_dir(self.log_dir)
         self.log_file = '%s/%s.log' % (self.log_dir, self.timestamp)
         Util.ensure_nofile(self.log_file)
-        Util.set_logger(self.log_file, args.logging_level)
+        Util.set_logger(self.log_file, self.args.logging_level)
         self._logger = Util.get_logger()
 
         # device
-        if args.os_name == 'android':
+        if self.args.os_name == 'android':
             self.android_device = AndroidDevices().get_device(args.android_device_id)
         else:
             self.android_device = None
 
         # OS
         self.host_os = HostOS()
-        if args.os_name == 'android':
+        if self.args.os_name == 'android':
             self.target_os = AndroidOS(self.android_device)
         else:
             self.target_os = self.host_os
 
         # browser
-        if args.browser_name:
-            browser_name = args.browser_name
+        if self.args.browser_name:
+            browser_name = self.args.browser_name
         elif self.target_os.is_cros():
             browser_name = 'chrome'
         else:
             Util.error('Please designate browser name')
 
-        if args.browser_options:
-            browser_options = args.browser_options.split(',')
+        if self.args.browser_options:
+            browser_options = self.args.browser_options.split(',')
         else:
             browser_options = []
 
@@ -96,9 +98,50 @@ class Diag(object):
             Util.ensure_nodir(user_data_dir)
             Util.ensure_dir(user_data_dir)
 
-        self.browser = Browser(name=browser_name, path=args.browser_path, options=browser_options, os=self.target_os)
+        self.browser = Browser(name=browser_name, path=self.args.browser_path, options=browser_options, os=self.target_os)
 
-        self.webdriver_path = args.webdriver_path
+        root = Tk()
+        root.title("Chrome Diagnostic Tool")
+        width = 1024
+        height = 768
+        root.geometry('%sx%s' % (width, height))
+        root.update()
+
+        left_frame = Frame(root)
+        left_frame.pack(side=LEFT)
+        Button(left_frame, text="Diag", command=self.diag).pack()
+        self.diag_listbox = self.ScrolledListbox(left_frame, 'xy', width=80, height=height)
+        self.diag_listbox.pack()
+
+        right_frame = Frame(root)
+        right_frame.pack(side=LEFT)
+        Button(right_frame, text="Bisect", command=self.bisect).pack()
+        self.bisect_listbox = self.ScrolledListbox(right_frame, 'xy', width=100, height=height)
+        self.bisect_listbox.pack()
+        root.mainloop()
+
+    def Scrolled(self, _widget, _master, _mode='y', **options):
+        widget = _widget(_master, **options)
+        if 'x' in _mode:
+            x_scrollbar = Scrollbar(_master, orient=HORIZONTAL)
+            x_scrollbar.pack(side=BOTTOM, fill=X)
+            widget.config(xscrollcommand=x_scrollbar.set)
+            x_scrollbar.config(command=widget.xview)
+        if 'y' in _mode:
+            y_scrollbar = Scrollbar(_master)
+            y_scrollbar.pack(side=RIGHT, fill=Y)
+            widget.config(yscrollcommand=y_scrollbar.set)
+            y_scrollbar.config(command=widget.yview)
+
+        return widget
+
+    def ScrolledListbox(self, master, _mode='y', **options):
+        return self.Scrolled(Listbox, master, _mode, **options)
+
+
+
+    def diag(self):
+        self.webdriver_path = self.args.webdriver_path
         self.webdriver = Webdriver(browser=self.browser, path=self.webdriver_path, host_os=self.host_os, target_os=self.target_os, android_device=self.android_device)
         self.driver = self.webdriver.driver
 
@@ -118,7 +161,6 @@ class Diag(object):
         fo.close()
         time.sleep(2)
 
-
         trs = self.driver.find_element_by_id('basic-info').find_elements_by_xpath('./div/table/tbody/tr')
         for tr in trs:
             tds = tr.find_elements_by_xpath('./td')
@@ -126,7 +168,14 @@ class Diag(object):
             if key == 'GL_RENDERER':
                 product_name = tds[1].find_element_by_xpath('./span').text
                 break
-        print product_name
+
+        self.driver.quit()
+
+        self.diag_listbox.insert(END, 'GPU: %s' % self.gpu)
+
+    def bisect(self):
+        pass
+
 
 class Cmd(object):
     def __init__(self, cmd, show_cmd=False, dryrun=False, abort=False):
@@ -729,7 +778,6 @@ class Webdriver(object):
                 remote_port = self._get_chrome_remote_debugging_port()
                 urllib2.urlopen('http://localhost:%i/json/new' % remote_port)
                 capabilities['chromeOptions']['debuggerAddress'] = ('localhost:%d' % remote_port)
-
             self.driver = webdriver.Remote(command_executor=self.server_url, desired_capabilities=capabilities)
         # other OS
         else:
@@ -794,7 +842,7 @@ class Webdriver(object):
 
 
 if __name__ == '__main__':
-    diag = Diag()
+    Diag()
 
 
 
